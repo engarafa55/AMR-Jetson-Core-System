@@ -10,6 +10,7 @@ extern "C" {
 #include <unistd.h>
 }
 
+#include <cmath>
 #include <iostream>
 
 MPU6050Sensor::MPU6050Sensor(int bus_number)
@@ -176,7 +177,7 @@ double MPU6050Sensor::getAngularVelocityZ() const
 double MPU6050Sensor::convertRawGyroscopeData(int16_t gyro_raw) const
 {
   const double ang_vel_in_deg_per_s = static_cast<double>(gyro_raw) / GYRO_SENS_MAP.at(gyro_range_);
-  return ang_vel_in_deg_per_s;
+  return ang_vel_in_deg_per_s * M_PI / 180.0;  // Convert to rad/s (REP-145 compliance)
 }
 
 double MPU6050Sensor::convertRawAccelerometerData(int16_t accel_raw) const
