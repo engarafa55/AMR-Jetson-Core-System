@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <memory>
-#include "rclcpp/qos.hpp"
 
 using namespace std::chrono_literals;
 
@@ -32,7 +31,7 @@ MPU6050Driver::MPU6050Driver()
   mpu6050_->printConfig();
   mpu6050_->printOffsets();
   // Create publisher
-  publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu", rclcpp::SensorDataQoS());
+  publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu", 10);
   int freq_hz = this->get_parameter("frequency").as_int();
   if (freq_hz <= 0) freq_hz = 100;  // Safe default
   auto period = std::chrono::milliseconds(1000 / freq_hz);
