@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <memory>
+#include "rclcpp/qos.hpp"
 
 using namespace std::chrono_literals;
 
@@ -31,10 +32,11 @@ MPU6050Driver::MPU6050Driver()
   mpu6050_->printConfig();
   mpu6050_->printOffsets();
   // Create publisher
-  publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu", 10);
-  std::chrono::duration<int64_t, std::milli> frequency =
-      1000ms / this->get_parameter("gyro_range").as_int();
-  timer_ = this->create_wall_timer(frequency, std::bind(&MPU6050Driver::handleInput, this));
+  publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("imu", rclcpp::SensorDataQoS());
+  int freq_hz = this->get_parameter("frequency").as_int();
+  if (freq_hz <= 0) freq_hz = 100;  // Safe default
+  auto period = std::chrono::milliseconds(1000 / freq_hz);
+  timer_ = this->create_wall_timer(period, std::bind(&MPU6050Driver::handleInput, this));
 }
 
 void MPU6050Driver::handleInput()
@@ -42,15 +44,25 @@ void MPU6050Driver::handleInput()
   auto message = sensor_msgs::msg::Imu();
   message.header.stamp = this->get_clock()->now();
   message.header.frame_id = "imu_link";
-  message.linear_acceleration_covariance = {0};
+  // MPU6050 ±2g range: noise density ~400 µg/√Hz, at 94Hz BW ≈ 0.038 m/s²
+  // Variance ≈ (0.038)² ≈ 0.0014, use 0.01 for margin
+  message.linear_acceleration_covariance = {
+    0.01, 0.0, 0.0,
+    0.0, 0.01, 0.0,
+    0.0, 0.0, 0.01};
   message.linear_acceleration.x = mpu6050_->getAccelerationX();
   message.linear_acceleration.y = mpu6050_->getAccelerationY();
   message.linear_acceleration.z = mpu6050_->getAccelerationZ();
-  message.angular_velocity_covariance[0] = {0};
+  // MPU6050 ±250°/s range: noise density ~0.005 °/s/√Hz at 94Hz BW
+  // ≈ 8.5e-4 rad/s → variance ≈ 7.2e-7, use 0.001 for margin
+  message.angular_velocity_covariance = {
+    0.001, 0.0, 0.0,
+    0.0, 0.001, 0.0,
+    0.0, 0.0, 0.001};
   message.angular_velocity.x = mpu6050_->getAngularVelocityX();
   message.angular_velocity.y = mpu6050_->getAngularVelocityY();
   message.angular_velocity.z = mpu6050_->getAngularVelocityZ();
-  // Invalidate quaternion
+  // Invalidate quaternion (MPU6050 has no magnetometer, cannot provide orientation)
   message.orientation_covariance[0] = -1;
   message.orientation.x = 0;
   message.orientation.y = 0;
@@ -71,7 +83,7 @@ void MPU6050Driver::declareParameters()
   this->declare_parameter<double>("accel_x_offset", 0.0);
   this->declare_parameter<double>("accel_y_offset", 0.0);
   this->declare_parameter<double>("accel_z_offset", 0.0);
-  this->declare_parameter<int>("frequency", 0.0);
+  this->declare_parameter<int>("frequency", 100);
 }
 
 int main(int argc, char* argv[])
