@@ -4,8 +4,6 @@
 #include <sstream>
 #include <libserial/SerialPort.h>
 #include <iostream>
-#include <thread>
-#include <chrono>
 
 namespace arduino_hardware_interface
 {
@@ -39,11 +37,10 @@ public:
     timeout_ms_ = timeout_ms;
     serial_conn_.Open(serial_device);
     serial_conn_.SetBaudRate(convert_baud_rate(baud_rate));
+  }
 
-    // Wait for Arduino bootloader to finish after DTR-triggered reset.
-    // Opening the serial port asserts DTR, which resets the Arduino.
-    // The bootloader runs for ~1.5-2 seconds before the user sketch starts.
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+  void flush_buffers()
+  {
     serial_conn_.FlushIOBuffers();
   }
 

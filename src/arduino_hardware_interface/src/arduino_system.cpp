@@ -191,6 +191,7 @@ hardware_interface::CallbackReturn ArduinoSystemHardware::on_activate(
   lifter_position_command_ = 0.0;
 
   // Reset Hardware
+  comms_.flush_buffers();   // Clear any bootloader garbage before first command
   comms_.reset_encoders();
   
   if (cfg_.pid_p > 0)
