@@ -4,6 +4,8 @@
 #include <sstream>
 #include <libserial/SerialPort.h>
 #include <iostream>
+#include <thread>
+#include <chrono>
 
 namespace arduino_hardware_interface
 {
@@ -41,6 +43,15 @@ public:
 
   void flush_buffers()
   {
+    serial_conn_.FlushIOBuffers();
+  }
+
+  /// Wait for the Arduino bootloader to finish after a DTR-triggered reset.
+  /// MUST be called from on_activate(), NOT from connect()/on_configure(),
+  /// to avoid blocking the executor during DDS discovery.
+  void wait_for_bootloader(int wait_ms = 2000)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
     serial_conn_.FlushIOBuffers();
   }
 

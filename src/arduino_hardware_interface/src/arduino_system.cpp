@@ -182,6 +182,13 @@ hardware_interface::CallbackReturn ArduinoSystemHardware::on_activate(
     return hardware_interface::CallbackReturn::ERROR;
   }
   
+  // Wait for the Arduino bootloader to finish after DTR-triggered reset.
+  // This sleep is intentionally placed in on_activate() (NOT on_configure())
+  // so that DDS discovery completes before we block the executor.
+  RCLCPP_INFO(rclcpp::get_logger("ArduinoSystemHardware"),
+    "Waiting 2s for Arduino bootloader to complete after DTR reset...");
+  comms_.wait_for_bootloader();
+
   // Reset internal states
   wheel_l_.pos = 0.0;
   wheel_r_.pos = 0.0;
