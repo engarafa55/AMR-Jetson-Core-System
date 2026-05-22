@@ -52,13 +52,15 @@ ekf_filter_node:
         # Source 2: IMU Sensor (MPU6050)
         # -------------------------------------
         imu0: /imu
-        # We use Angular Velocity (Gyro Z) and Linear Acceleration (Accel X)
-        # Note: Yaw is ignored because MPU6050 has no magnetometer
+        # We use Angular Velocity (Gyro Z) ONLY.
+        # Linear acceleration is NOT fused because the MPU6050's accelerometer
+        # bias (~0.016 m/s²), when double-integrated, causes unbounded position drift.
+        # Yaw orientation is also ignored because the MPU6050 has no magnetometer.
         imu0_config: [false, false, false,
                       false, false, false,
                       false, false, false,
                       false, false, true,
-                      true,  false, false]
+                      false, false, false]
         imu0_differential: false
         imu0_queue_size: 10
         imu0_remove_gravitational_acceleration: true
