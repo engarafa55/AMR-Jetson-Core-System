@@ -1,11 +1,11 @@
 amcl:
   ros__parameters:
     use_sim_time: False
-    alpha1: 0.2
-    alpha2: 0.2
-    alpha3: 0.2
-    alpha4: 0.2
-    alpha5: 0.2
+    alpha1: 0.5       # Rotation noise from rotation — 35kg inertia causes heading lag during slip
+    alpha2: 0.5       # Rotation noise from translation — wheel slip generates heading error
+    alpha3: 0.4       # Translation noise from translation — primary wheel-slip axis
+    alpha4: 0.4       # Translation noise from rotation — heavy chassis skids during turns
+    alpha5: 0.2       # Translational noise for omni robots — N/A for diff drive, unchanged
     base_frame_id: "base_link"
     beam_skip_distance: 0.5
     beam_skip_error_threshold: 0.9
@@ -13,26 +13,26 @@ amcl:
     do_beamskip: false
     global_frame_id: "map"
     lambda_short: 0.1
-    laser_likelihood_max_dist: 2.0
+    laser_likelihood_max_dist: 3.0   # Wider gradient for scan-matching recovery (was 2.0)
     laser_max_range: 100.0
     laser_min_range: -1.0
     laser_model_type: "likelihood_field"
-    max_beams: 60
-    max_particles: 2000
-    min_particles: 500
+    max_beams: 90        # More beams = stronger Lidar correction signal per update (was 60)
+    max_particles: 3000  # More particles survive sudden odometry jumps (was 2000)
+    min_particles: 600   # Proportional floor increase (was 500)
     odom_frame_id: "odom"
     pf_err: 0.05
     pf_z: 0.99
-    recovery_alpha_fast: 0.0
-    recovery_alpha_slow: 0.0
+    recovery_alpha_fast: 0.1    # Enable adaptive particle injection — fast tracker (was 0.0)
+    recovery_alpha_slow: 0.001  # Slow tracker for sustained mismatch — must be < fast (was 0.0)
     resample_interval: 1
     robot_model_type: "nav2_amcl::DifferentialMotionModel"
     save_pose_rate: 0.5
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0
-    update_min_a: 0.2
-    update_min_d: 0.25
+    update_min_a: 0.05   # Trigger Lidar update every ~2.9° rotation — catch slip early (was 0.2)
+    update_min_d: 0.10   # Trigger Lidar update every 10 cm translation — 2.5× more frequent (was 0.25)
     z_hit: 0.5
     z_max: 0.05
     z_rand: 0.5
@@ -126,7 +126,7 @@ controller_server:
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
     progress_checker_plugin: "progress_checker"
-    goal_checker_plugins: ["general_goal_checker"] 
+    goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
 
     # Progress checker parameters
@@ -134,60 +134,131 @@ controller_server:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
       movement_time_allowance: 10.0
-    
+
     # Goal checker parameters
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.25
       # TWEAK 1: Increased yaw tolerance to 0.40 (approx 23 deg) to prevent oscillation/dancing at the goal
-      yaw_goal_tolerance: 0.40 
-    
-    # DWB parameters
+      yaw_goal_tolerance: 0.40
+
+    # ── MPPI Controller (replaces DWBLocalPlanner) ────────────────────
+    # Optimized for: 35 kg diff-drive, Jetson Nano (CPU-only), 80 cm corridor entry
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: True
-      min_vel_x: -0.26
-      min_vel_y: 0.0
-      max_vel_x: 0.26
-      max_vel_y: 0.0
-      max_vel_theta: 1.0
-      min_speed_xy: 0.0
-      max_speed_xy: 0.26
-      min_speed_theta: 0.0
-      
-      # TWEAK 2: Reduced rotational acceleration/deceleration for smoother control
-      acc_lim_x: 2.5
-      acc_lim_y: 0.0
-      acc_lim_theta: 1.5   # Reduced from 3.2
-      decel_lim_x: -2.5
-      decel_lim_y: 0.0
-      decel_lim_theta: -1.5 # Reduced from -3.2
-      
-      vx_samples: 20
-      vy_samples: 5
-      vtheta_samples: 20
-      sim_time: 1.7
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      transform_tolerance: 0.2
-      xy_goal_tolerance: 0.25
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: True
-      stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      
-      # TWEAK 3: Increased slowing factor to start decelerating rotation earlier
-      RotateToGoal.slowing_factor: 10.0 
-      RotateToGoal.lookahead_time: -1.0
+      plugin: "nav2_mppi_controller::MPPIController"
+
+      # ── Trajectory Sampling (Jetson Nano tuned) ──
+      time_steps: 28            # 28 × 0.1s = 2.8s lookahead (reduced from 40 for Nano)
+      model_dt: 0.1             # 100 ms per timestep
+      batch_size: 500           # 500 rollouts per cycle (reduced from 1000 for Nano)
+      iteration_count: 1        # Single optimization pass — saves ~50% CPU vs 2
+      temperature: 0.25         # Lower = exploit best trajectories (less random exploration)
+      gamma: 0.015              # Discount factor for trajectory costs over time
+
+      # ── Velocity Bounds (Differential Drive) ──
+      motion_model: "DiffDrive"
+      vx_max: 0.26              # Max forward speed — matches existing robot capability
+      vx_min: -0.15             # Gentle reverse for escape maneuvers in tight spaces
+      vy_max: 0.0               # No lateral motion (diff drive constraint)
+      wz_max: 0.50              # 28.6°/s max rotation — safe for 35 kg, 2× the old DWB limit
+
+      # ── Noise Sampling Std Deviations ──
+      vx_std: 0.10              # Linear velocity noise for trajectory diversity
+      vy_std: 0.0               # Zero for diff drive
+      wz_std: 0.30              # Rotational noise — enough diversity for tight maneuvers
+
+      # ── Path Management ──
+      prune_distance: 1.5       # Prune path points > 1.5 m behind robot
+      transform_tolerance: 0.2  # TF tolerance in seconds
+
+      # ── Visualization (disabled for Jetson Nano CPU savings) ──
+      visualize: false
+      regenerate_noises: false
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+
+      # ── Critics ────────────────────────────────────────────────────
+      critics: [
+        "ConstraintCritic",
+        "CostCritic",
+        "GoalCritic",
+        "GoalAngleCritic",
+        "PathAlignCritic",
+        "PathFollowCritic",
+        "PathAngleCritic",
+        "PreferForwardCritic"
+      ]
+
+      # Enforces kinematic constraints (DiffDrive velocity/acceleration bounds)
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+
+      # ── OBSTACLE AVOIDANCE (critical for Issue 2 — rotation collisions) ──
+      # Uses FULL POLYGON footprint collision checking at every sampled trajectory point.
+      # This is the parameter that eliminates corner collisions during in-place rotation.
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81          # Strong enough to avoid walls, not so strong it blocks corridors
+        critical_cost: 300.0       # > 254 (max costmap) — rely on footprint check, not raw cost
+        consider_footprint: true   # CRITICAL: full [[0.48,0.36]...] polygon collision check
+        collision_cost: 1000000.0  # Trajectories that collide get effectively infinite cost
+        near_goal_distance: 1.0    # Within 1 m of goal, relax cost aversion for docking
+        trajectory_point_step: 2   # Check every 2nd point — 7,000 checks/cycle on Nano
+
+      # Attract toward goal XY position
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4  # Only activates within 1.4 m of goal
+
+      # Align heading with goal orientation at the final approach
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5  # Only within 0.5 m — don't rotate prematurely
+
+      # Penalize backward motion — prefer driving forward
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+
+      # Follow the global path closely (highest-weighted critic)
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0           # High weight — MPPI tracks the SmacPlanner2D path tightly
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4    # Check every 4th point for alignment (saves CPU)
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+
+      # Stay near the path longitudinally (carrot-following behavior)
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+
+      # Penalize large heading deviations from the path direction
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        mode: 0                     # 0 = forward-only angle check
 
 
 local_costmap:
@@ -202,12 +273,17 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.22
+      # ── POLYGON FOOTPRINT (replaces robot_radius: 0.22) ──
+      # 86×62 cm URDF chassis + 5 cm safety margin per side = 96×72 cm virtual footprint
+      # inscribed_radius = 0.36 m | circumscribed_radius = 0.60 m
+      footprint: "[[0.48, 0.36], [0.48, -0.36], [-0.48, -0.36], [-0.48, 0.36]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 5.0   # Decay: cost = 253×e^(-5.0×Δd). At corridor center
+                                   # (Δd=0.04m): cost=207 — passable. (was 3.0)
+        inflation_radius: 0.85     # 0.49 m penalty gradient beyond inscribed (0.36 m).
+                                   # Cells up to 0.85 m from any obstacle are penalized. (was 0.55)
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -241,9 +317,10 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: False
-      robot_radius: 0.22
+      # ── POLYGON FOOTPRINT (replaces robot_radius: 0.22) ──
+      footprint: "[[0.48, 0.36], [0.48, -0.36], [-0.48, -0.36], [-0.48, 0.36]]"
       resolution: 0.05
-      track_unknown_space: true
+      track_unknown_space: true    # Unknown cells = NO_INFORMATION (255), not free space
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -255,17 +332,21 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 3.0
+          raytrace_max_range: 2.5   # Matched to obstacle_max_range — prevents raytracing from
+                                    # clearing unknown cells beyond reliable detection range.
+                                    # This is the Issue 3 fix (boundary overflow). (was 3.0)
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
+        trinary_costmap: true       # Explicit: free / occupied / unknown (not binary)
+        unknown_cost_value: -1      # Map server's unknown value → NO_INFORMATION in costmap
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 5.0    # Identical to local costmap for consistent behavior
+        inflation_radius: 0.85     # Identical to local costmap
       always_send_full_costmap: True
 
 map_server:
@@ -283,16 +364,31 @@ map_saver:
     occupied_thresh_default: 0.65
     map_subscribe_transient_local: True
 
+# ── SmacPlanner2D (replaces NavfnPlanner) ────────────────────────────
+# Cost-aware 8-connected A* with built-in path smoother.
+# Produces centered, smooth paths — no more wall-hugging.
 planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
     use_sim_time: False
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.5
-      use_astar: false
-      allow_unknown: true
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.25              # Tighter goal tolerance for precision docking (was 0.5)
+      allow_unknown: false         # ── ISSUE 3 FIX: never plan through unmapped space ── (was true)
+      max_iterations: 1000000      # Allow thorough search in complex warehouse layouts
+      max_on_approach_iterations: 1000
+      max_planning_time: 5.0       # 5 second budget — generous for warehouse scale
+      cost_travel_multiplier: 2.0  # Costmap cost penalty: cell_cost = 1.0 + 2.0×(value/252)
+                                   # Corridor center (cost 207): 2.64× free space — passable
+                                   # when it is the only viable route to the docking station.
+      use_final_approach_orientation: false  # Let MPPI handle final heading alignment
+      smoother:
+        max_iterations: 1000       # Internal A* path smoother — runs before smoother_server
+        w_smooth: 0.3              # Smoothness weight (higher = smoother, more deviation)
+        w_data: 0.2                # Data fidelity weight (higher = closer to original A* path)
+        tolerance: 1.0e-10
+        do_refinement: true        # Second pass for tighter smoothing
 
 smoother_server:
   ros__parameters:
@@ -302,7 +398,7 @@ smoother_server:
       plugin: "nav2_smoother::SimpleSmoother"
       tolerance: 1.0e-10
       max_its: 1000
-      do_refinement: True
+      do_refinement: True          # Two-stage pipeline: SmacPlanner2D internal → SimpleSmoother
 
 behavior_server:
   ros__parameters:
@@ -325,9 +421,9 @@ behavior_server:
     transform_tolerance: 0.1
     use_sim_time: false
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
-    min_rotational_vel: 0.4
-    rotational_acc_lim: 3.2
+    max_rotational_vel: 0.40     # Safe recovery spin speed for 35 kg chassis (was 1.0)
+    min_rotational_vel: 0.10     # Allow slow, careful rotations near obstacles (was 0.4)
+    rotational_acc_lim: 1.5      # Harmonized with MPPI and velocity_smoother (was 3.2)
 
 robot_state_publisher:
   ros__parameters:
@@ -350,10 +446,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.26, 0.0, 1.0]
-    min_velocity: [-0.26, 0.0, -1.0]
-    max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    max_velocity: [0.26, 0.0, 0.50]      # wz: 0.50 matches MPPI wz_max (was 1.0)
+    min_velocity: [-0.15, 0.0, -0.50]    # Reverse: 0.15 matches MPPI vx_min (was -0.26)
+    max_accel: [2.5, 0.0, 1.5]           # Rotational: 1.5 rad/s² for 35 kg inertia (was 3.2)
+    max_decel: [-2.5, 0.0, -1.5]         # Matched to accel limit (was -3.2)
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
