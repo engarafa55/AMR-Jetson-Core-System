@@ -26,7 +26,7 @@ slam_toolbox:
     debug_logging: false
     throttle_scans: 1
     transform_publish_period: 0.02 #if 0 never publishes odometry
-    map_update_interval: 1.0                   # was 1.0  — refresh published map every 3s; reduces Nano CPU load during mapping
+    map_update_interval: 1.5                   # was 1.0  — refresh published map every 3s; reduces Nano CPU load during mapping
     resolution: 0.025                          # was 0.05 — 2.5 cm/pixel gives ~1.6 pixels of clearance per side in 80 cm corridor
     minimum_laser_range: 0.2                   # reject sub-minimum RPLidar A1 readings
     max_laser_range: 6.0                       # was 8.0  — matched to laser_filter hard-clip; RPLidar A1 accuracy degrades beyond 6 m
@@ -53,7 +53,7 @@ slam_toolbox:
     loop_match_minimum_response_fine: 0.55     # was 0.45 — same reasoning, fine stage
 
     # Correlation Parameters - Correlation Parameters
-    correlation_search_space_dimension: 0.6    # was 0.5  — ±30 cm search to catch occasional larger slip events
+    correlation_search_space_dimension: 0.3    # was 0.5  — ±30 cm search to catch occasional larger slip events
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.03  # was 0.1 — CRITICAL: at 2.5 cm resolution, 3 cm smear ≈ 1.2 cells; gives the matcher a sharp correlation peak instead of a blurred plateau
 
