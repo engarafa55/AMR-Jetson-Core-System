@@ -360,8 +360,8 @@ map_saver:
   ros__parameters:
     use_sim_time: False
     save_map_timeout: 5.0
-    free_thresh_default: 0.25
-    occupied_thresh_default: 0.65
+    free_thresh_default: 0.196                 # was 0.25 — more cells classified as definitively "free"
+    occupied_thresh_default: 0.70              # was 0.65 — only high-confidence cells marked as walls; eliminates gray haze around edges
     map_subscribe_transient_local: True
 
 # ── SmacPlanner2D (replaces NavfnPlanner) ────────────────────────────

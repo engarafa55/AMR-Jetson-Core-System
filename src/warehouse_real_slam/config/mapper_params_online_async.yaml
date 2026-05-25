@@ -26,11 +26,11 @@ slam_toolbox:
     debug_logging: false
     throttle_scans: 1
     transform_publish_period: 0.02 #if 0 never publishes odometry
-    map_update_interval: 1.0
-    resolution: 0.05
-    minimum_laser_range: 0.2 #reject sub-minimum RPLidar readings
-    max_laser_range: 8.0 #match RPLidar A1 hardware maximum
-    minimum_time_interval: 0.2
+    map_update_interval: 3.0                   # was 1.0  — refresh published map every 3s; reduces Nano CPU load during mapping
+    resolution: 0.025                          # was 0.05 — 2.5 cm/pixel gives ~1.6 pixels of clearance per side in 80 cm corridor
+    minimum_laser_range: 0.2                   # reject sub-minimum RPLidar A1 readings
+    max_laser_range: 6.0                       # was 8.0  — matched to laser_filter hard-clip; RPLidar A1 accuracy degrades beyond 6 m
+    minimum_time_interval: 0.5                 # was 0.2  — prevents scans faster than 2 Hz even if travel thresholds are met; gives EKF time to converge
     transform_timeout: 0.5
     tf_buffer_duration: 30.
     stack_size_to_use: 40000000 #// program needs a larger stack size to serialize large maps
@@ -38,24 +38,24 @@ slam_toolbox:
 
     # General Parameters
     use_scan_matching: true
-    use_scan_barycenter: true
-    minimum_travel_distance: 0.3
-    minimum_travel_heading: 0.3
-    scan_buffer_size: 10
-    scan_buffer_maximum_scan_distance: 8.0
-    link_match_minimum_response_fine: 0.1  
+    use_scan_barycenter: false                 # was true — use laser frame origin, not scan centroid; more stable in asymmetric corridors
+    minimum_travel_distance: 0.5               # was 0.3  — fewer, better-matched scans; ~40% less insertions = less accumulated placement error
+    minimum_travel_heading: 0.5                # was 0.3  — ~29°; prevents rapid-fire insertion during slow turns where encoder slip is worst
+    scan_buffer_size: 20                       # was 10   — RPLidar A1 at 5.5 Hz has sparser angular resolution; 20 scans × 0.5 m = 10 m context for robust local matching
+    scan_buffer_maximum_scan_distance: 6.0     # was 8.0  — matched to max_laser_range
+    link_match_minimum_response_fine: 0.35     # was 0.1  — CRITICAL: reject scan matches below 35% correlation quality; prevents bad matches from poisoning the pose graph
     link_scan_maximum_distance: 1.5
     loop_search_maximum_distance: 3.0
-    do_loop_closing: true 
-    loop_match_minimum_chain_size: 10           
-    loop_match_maximum_variance_coarse: 3.0  
-    loop_match_minimum_response_coarse: 0.35    
-    loop_match_minimum_response_fine: 0.45
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 15          # was 10   — require more consistent matches before committing a loop closure
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.45   # was 0.35 — only accept high-confidence loop closures
+    loop_match_minimum_response_fine: 0.55     # was 0.45 — same reasoning, fine stage
 
     # Correlation Parameters - Correlation Parameters
-    correlation_search_space_dimension: 0.5
+    correlation_search_space_dimension: 0.6    # was 0.5  — ±30 cm search to catch occasional larger slip events
     correlation_search_space_resolution: 0.01
-    correlation_search_space_smear_deviation: 0.1 
+    correlation_search_space_smear_deviation: 0.03  # was 0.1 — CRITICAL: at 2.5 cm resolution, 3 cm smear ≈ 1.2 cells; gives the matcher a sharp correlation peak instead of a blurred plateau
 
     # Correlation Parameters - Loop Closure Parameters
     loop_search_space_dimension: 8.0
@@ -63,12 +63,12 @@ slam_toolbox:
     loop_search_space_smear_deviation: 0.03
 
     # Scan Matcher Parameters
-    distance_variance_penalty: 0.5      
-    angle_variance_penalty: 1.0    
+    distance_variance_penalty: 0.3             # was 0.5  — lower = scan matcher trusts laser MORE vs. odometry; lets Ceres override slipping-wheel drift
+    angle_variance_penalty: 0.5                # was 1.0  — allows larger heading corrections when laser evidence is strong
 
-    fine_search_angle_offset: 0.00349     
-    coarse_search_angle_offset: 0.349   
-    coarse_angle_resolution: 0.0349        
+    fine_search_angle_offset: 0.00698          # was 0.00349 — ±0.4° fine angular search (doubled); catches small heading errors from encoder slip
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
     minimum_angle_penalty: 0.9
-    minimum_distance_penalty: 0.5
+    minimum_distance_penalty: 0.3              # was 0.5  — floor value lowered; ensures matcher can always override odom when laser evidence is strong
     use_response_expansion: true
