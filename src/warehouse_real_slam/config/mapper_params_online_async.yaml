@@ -26,7 +26,7 @@ slam_toolbox:
     debug_logging: false
     throttle_scans: 1
     transform_publish_period: 0.02 #if 0 never publishes odometry
-    map_update_interval: 3.0                   # was 1.0  — refresh published map every 3s; reduces Nano CPU load during mapping
+    map_update_interval: 1.0                   # was 1.0  — refresh published map every 3s; reduces Nano CPU load during mapping
     resolution: 0.025                          # was 0.05 — 2.5 cm/pixel gives ~1.6 pixels of clearance per side in 80 cm corridor
     minimum_laser_range: 0.2                   # reject sub-minimum RPLidar A1 readings
     max_laser_range: 6.0                       # was 8.0  — matched to laser_filter hard-clip; RPLidar A1 accuracy degrades beyond 6 m
@@ -39,11 +39,11 @@ slam_toolbox:
     # General Parameters
     use_scan_matching: true
     use_scan_barycenter: false                 # was true — use laser frame origin, not scan centroid; more stable in asymmetric corridors
-    minimum_travel_distance: 0.5               # was 0.3  — fewer, better-matched scans; ~40% less insertions = less accumulated placement error
-    minimum_travel_heading: 0.5                # was 0.3  — ~29°; prevents rapid-fire insertion during slow turns where encoder slip is worst
+    minimum_travel_distance: 0.3               # was 0.3  — fewer, better-matched scans; ~40% less insertions = less accumulated placement error
+    minimum_travel_heading: 0.3                # was 0.3  — ~29°; prevents rapid-fire insertion during slow turns where encoder slip is worst
     scan_buffer_size: 20                       # was 10   — RPLidar A1 at 5.5 Hz has sparser angular resolution; 20 scans × 0.5 m = 10 m context for robust local matching
     scan_buffer_maximum_scan_distance: 6.0     # was 8.0  — matched to max_laser_range
-    link_match_minimum_response_fine: 0.35     # was 0.1  — CRITICAL: reject scan matches below 35% correlation quality; prevents bad matches from poisoning the pose graph
+    link_match_minimum_response_fine: 0.2     # was 0.1  — CRITICAL: reject scan matches below 35% correlation quality; prevents bad matches from poisoning the pose graph
     link_scan_maximum_distance: 1.5
     loop_search_maximum_distance: 3.0
     do_loop_closing: true
